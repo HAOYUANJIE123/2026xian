@@ -48,7 +48,8 @@ python pack_submission.py --skip-tests
 | Tag | 要点 |
 |-----|------|
 | `v4-guard-break` | 破守、验关/送货、官道+冰鉴（策略 v4） |
-| **`v4.1-pack-checks`** | **当前推荐**：含 v4 策略 + 打包自动检查 + checklist |
+| `v4.1-pack-checks` | v4 策略 + 打包自动检查 + checklist |
+| **`v4.2-contest-guard`** | **当前推荐**：窗口争夺后不再卡死；边上遇 guard 主动 BREAK_GUARD |
 
 回滚到某一版：
 

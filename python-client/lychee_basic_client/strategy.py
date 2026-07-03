@@ -125,23 +125,30 @@ class RouteStrategy:
 
         phase = data.get("phase", "NORMAL")
 
-        if state in ("MOVING", "WAITING"):
+        if state == "MOVING":
             edge_action = self._edge_guard_response(data, me, phase, current_node)
             if edge_action is not None:
                 return edge_action
             next_node = me.get("nextNodeId")
-            if not next_node:
-                if (
-                    state == "WAITING"
-                    and phase == "RUSH"
-                    and not me.get("verified")
-                    and current_node == self.gate_node_id
-                ):
-                    return {"action": "VERIFY_GATE", "targetNodeId": self.gate_node_id}
-                if state == "WAITING" and me.get("verified") and current_node == self.gate_node_id:
-                    return {"action": "MOVE", "targetNodeId": self.terminal_node_id}
-                return {"action": "WAIT"}
-            return {"action": "MOVE", "targetNodeId": next_node}
+            if next_node:
+                return {"action": "MOVE", "targetNodeId": next_node}
+            return None
+
+        if state == "WAITING":
+            edge_action = self._edge_guard_response(data, me, phase, current_node)
+            if edge_action is not None:
+                return edge_action
+            next_node = me.get("nextNodeId")
+            if next_node:
+                return {"action": "MOVE", "targetNodeId": next_node}
+            if (
+                phase == "RUSH"
+                and not me.get("verified")
+                and current_node == self.gate_node_id
+            ):
+                return {"action": "VERIFY_GATE", "targetNodeId": self.gate_node_id}
+            if me.get("verified") and current_node == self.gate_node_id:
+                return {"action": "MOVE", "targetNodeId": self.terminal_node_id}
 
         node = self._find_node(data, current_node)
 
@@ -435,6 +442,10 @@ class RouteStrategy:
         team_id = me.get("teamId", "")
         if not self._enemy_guard_blocks(data, next_node, team_id):
             return None
+        goal = self._goal(me, phase, data, current_node) or self.terminal_node_id
+        guard_action = self._guard_breakthrough_action(data, me, current_node, goal)
+        if guard_action is not None:
+            return guard_action
         return {"action": "WAIT"}
 
     def _guard_breakthrough_action(
