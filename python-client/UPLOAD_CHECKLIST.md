@@ -32,7 +32,7 @@ python pack_submission.py --skip-tests
 
 - [ ] 上传 **`lychee-python-client.zip`**
 - [ ] 记录对应 **commit / tag**（`git show v4.2-contest-guard` 可看对战与缺陷摘要）
-- [ ] 上线后把 replay 放进 `log/`，并更新 **`python-client/VERSION_TAGS.md`** 后重打 tag
+- [ ] 上线后把 replay 放进 `log/`，并更新 **`VERSION_TAGS.md`**（对战表 + 原因分析）后重打 tag
 
 ## 4. 上线后看 replay（必做）
 
@@ -46,7 +46,7 @@ python pack_submission.py --skip-tests
 
 ## 5. 版本对照
 
-完整对战记录与缺陷见 **`python-client/VERSION_TAGS.md`**。查看 tag：`git show <tag>`。
+完整对战记录、**原因分析**与缺陷见 **`python-client/VERSION_TAGS.md`**。查看 tag：`git show <tag>`。
 
 | Tag | 要点 |
 |-----|------|
