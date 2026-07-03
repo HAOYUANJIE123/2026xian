@@ -5,14 +5,17 @@ from __future__ import annotations
 
 import argparse
 import stat
+import subprocess
+import sys
 import zipfile
 from pathlib import Path
 
-from pack_checks import check_source_tree, run_unit_tests, validate_zip
+from pack_checks import validate_zip
 
 ROOT = Path(__file__).resolve().parent
 OUT = ROOT.parent / "lychee-python-client.zip"
 TOP_LEVEL = ["start.sh", "basic_client.py", "pyproject.toml"]
+VALIDATE = ROOT / "validate_before_upload.py"
 
 
 def build_zip(out: Path) -> None:
@@ -41,9 +44,9 @@ def build_zip(out: Path) -> None:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--skip-tests",
+        "--skip-validate",
         action="store_true",
-        help="Skip unit tests (not recommended for platform uploads)",
+        help="Skip validate_before_upload (NOT for platform uploads)",
     )
     parser.add_argument(
         "-o",
@@ -59,19 +62,17 @@ def main() -> None:
     args = parse_args()
     out = args.output.resolve()
 
-    print("[1/4] Checking source tree...", flush=True)
-    check_source_tree()
+    if not args.skip_validate:
+        cmd = [sys.executable, str(VALIDATE)]
+        print("Running validate_before_upload.py ...", flush=True)
+        result = subprocess.run(cmd, cwd=str(ROOT))
+        if result.returncode != 0:
+            raise SystemExit(result.returncode)
 
-    if args.skip_tests:
-        print("[2/4] Skipping unit tests (--skip-tests)", flush=True)
-    else:
-        print("[2/4] Running unit tests...", flush=True)
-        run_unit_tests()
-
-    print(f"[3/4] Building {out}...", flush=True)
+    print(f"Building {out}...", flush=True)
     build_zip(out)
 
-    print("[4/4] Validating zip...", flush=True)
+    print("Validating zip...", flush=True)
     validate_zip(out)
 
     print(f"Created {out}", flush=True)
