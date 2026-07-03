@@ -47,7 +47,8 @@ python pack_submission.py --skip-tests
 
 | Tag | 要点 |
 |-----|------|
-| `v4-guard-break` | 破守、边上 MOVE、验关优先、官道+冰鉴 |
+| `v4-guard-break` | 破守、验关/送货、官道+冰鉴（策略 v4） |
+| **`v4.1-pack-checks`** | **当前推荐**：含 v4 策略 + 打包自动检查 + checklist |
 
 回滚到某一版：
 
