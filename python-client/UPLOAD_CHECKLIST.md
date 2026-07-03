@@ -26,12 +26,13 @@ python pack_submission.py --skip-tests
 
 - [ ] ZIP 在 **`2026xian/lychee-python-client.zip`**（与 `python-client/` 同级）
 - [ ] 解压后根目录直接有 `start.sh`，不是多套一层文件夹
-- [ ] 当前 Git 改动已提交；重要版本已打 tag（如 `v4-guard-break`）
+- [ ] 当前 Git 改动已提交；重要版本已打 **annotated tag**（含对战/缺陷说明，见 `VERSION_TAGS.md`）
 
 ## 3. 上传平台
 
 - [ ] 上传 **`lychee-python-client.zip`**
-- [ ] 记录对应 **commit / tag**，方便回滚
+- [ ] 记录对应 **commit / tag**（`git show v4.2-contest-guard` 可看对战与缺陷摘要）
+- [ ] 上线后把 replay 放进 `log/`，并更新 **`python-client/VERSION_TAGS.md`** 后重打 tag
 
 ## 4. 上线后看 replay（必做）
 
@@ -45,11 +46,20 @@ python pack_submission.py --skip-tests
 
 ## 5. 版本对照
 
+完整对战记录与缺陷见 **`python-client/VERSION_TAGS.md`**。查看 tag：`git show <tag>`。
+
 | Tag | 要点 |
 |-----|------|
-| `v4-guard-break` | 破守、验关/送货、官道+冰鉴（策略 v4） |
-| `v4.1-pack-checks` | v4 策略 + 打包自动检查 + checklist |
-| **`v4.2-contest-guard`** | **当前推荐**：窗口争夺后不再卡死；边上遇 guard 主动 BREAK_GUARD |
+| `v4-guard-break` | 破守、验关/送货、官道+冰鉴；线上 2616 仍卡 guard |
+| `v4.1-pack-checks` | v4 策略 + 打包检查；线上 2614/2616 未送达（S07 卡死、边上不破守） |
+| **`v4.2-contest-guard`** | **当前推荐**：修 S07 争夺后卡死 + 边上主动 BREAK_GUARD（待线上验证） |
+
+打 tag（从 `VERSION_TAGS.md` 生成 annotated 消息）：
+
+```powershell
+cd python-client
+python tag_release.py v4.2-contest-guard --recommend --force
+```
 
 回滚到某一版：
 
