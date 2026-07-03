@@ -149,7 +149,7 @@ class StrategyTests(unittest.TestCase):
         )
         self.assertEqual([{"action": "USE_RESOURCE", "resourceType": "FAST_HORSE"}], actions)
 
-    def test_skips_process_at_s02(self) -> None:
+    def test_waiting_at_s02_processes_after_move_rejected(self) -> None:
         strategy = RouteStrategy()
         strategy.load_start(
             {
@@ -158,15 +158,23 @@ class StrategyTests(unittest.TestCase):
                 "map": {"gameplay": {"roles": {"gateNodeId": "S14", "terminalNodeIds": ["S15"]}}},
             }
         )
+        strategy._pending_move = ("S02", "S03")
+        strategy._last_node_id = "S02"
         actions = strategy.decide(
             {
-                "round": 50,
+                "round": 44,
                 "phase": "NORMAL",
+                "messages": [
+                    {
+                        "type": "ACTION_REJECTED",
+                        "payload": {"playerId": 1001, "errorCode": "PROCESS_REQUIRED"},
+                    }
+                ],
                 "players": [
                     {
                         "playerId": 1001,
-                        "teamId": "BLUE",
-                        "state": "IDLE",
+                        "teamId": "RED",
+                        "state": "WAITING",
                         "currentNodeId": "S02",
                         "verified": False,
                         "delivered": False,
@@ -182,16 +190,43 @@ class StrategyTests(unittest.TestCase):
             },
             1001,
         )
-        self.assertNotEqual("PROCESS", actions[0].get("action") if actions else None)
+        self.assertEqual([{"action": "PROCESS", "targetNodeId": "S02"}], actions)
+        self.assertNotIn(("S02", "S03"), strategy._failed_moves)
 
-    def test_guard_hold_waits_at_s09_before_moving(self) -> None:
+    def test_process_required_does_not_blacklist_move(self) -> None:
+        strategy = RouteStrategy()
+        strategy.load_start(
+            {
+                "matchId": "m1",
+                "edges": [{"fromNodeId": "S02", "toNodeId": "S03", "bidirectional": True}],
+                "map": {"gameplay": {"roles": {"gateNodeId": "S14", "terminalNodeIds": ["S15"]}}},
+            }
+        )
+        strategy._pending_move = ("S02", "S03")
+        strategy._last_node_id = "S02"
+        strategy._sync_move_feedback(
+            {
+                "actionResults": [
+                    {
+                        "playerId": 1001,
+                        "action": "MOVE",
+                        "accepted": False,
+                        "errorCode": "PROCESS_REQUIRED",
+                    }
+                ]
+            },
+            1001,
+        )
+        self.assertNotIn(("S02", "S03"), strategy._failed_moves)
+
+    def test_moves_from_s09_when_no_guard(self) -> None:
         strategy = RouteStrategy()
         strategy.load_start(
             {
                 "matchId": "m1",
                 "edges": [
                     {"fromNodeId": "S09", "toNodeId": "S10", "bidirectional": True},
-                    {"fromNodeId": "S10", "toNodeId": "S14", "bidirectional": True},
+                    {"fromNodeId": "S10", "toNodeId": "S11", "bidirectional": True},
                 ],
                 "map": {"gameplay": {"roles": {"gateNodeId": "S14", "terminalNodeIds": ["S15"]}}},
             }
@@ -220,7 +255,124 @@ class StrategyTests(unittest.TestCase):
             },
             1001,
         )
-        self.assertEqual([{"action": "WAIT"}], actions)
+        self.assertEqual([{"action": "MOVE", "targetNodeId": "S10"}], actions)
+
+    def test_follows_main_route_from_s01(self) -> None:
+        strategy = RouteStrategy()
+        strategy.load_start(
+            {
+                "matchId": "m1",
+                "edges": [
+                    {"fromNodeId": "S01", "toNodeId": "S02", "bidirectional": True},
+                    {"fromNodeId": "S01", "toNodeId": "S06", "bidirectional": True},
+                    {"fromNodeId": "S02", "toNodeId": "S03", "bidirectional": True},
+                    {"fromNodeId": "S06", "toNodeId": "S08", "bidirectional": True},
+                ],
+                "map": {"gameplay": {"roles": {"gateNodeId": "S14", "terminalNodeIds": ["S15"]}}},
+            }
+        )
+        actions = strategy.decide(
+            {
+                "round": 2,
+                "phase": "NORMAL",
+                "players": [
+                    {
+                        "playerId": 1001,
+                        "teamId": "RED",
+                        "state": "IDLE",
+                        "currentNodeId": "S01",
+                        "verified": False,
+                        "delivered": False,
+                    }
+                ],
+                "nodes": [{"nodeId": "S01"}, {"nodeId": "S02"}, {"nodeId": "S06"}],
+            },
+            1001,
+        )
+        self.assertEqual([{"action": "MOVE", "targetNodeId": "S02"}], actions)
+
+    def test_opening_squad_scout_s10(self) -> None:
+        strategy = RouteStrategy()
+        strategy.load_start(
+            {
+                "matchId": "m1",
+                "edges": [{"fromNodeId": "S01", "toNodeId": "S02", "bidirectional": True}],
+                "map": {"gameplay": {"roles": {"gateNodeId": "S14", "terminalNodeIds": ["S15"]}}},
+            }
+        )
+        actions = strategy.decide(
+            {
+                "round": 1,
+                "phase": "NORMAL",
+                "players": [
+                    {
+                        "playerId": 1001,
+                        "teamId": "RED",
+                        "state": "MOVING",
+                        "currentNodeId": "S01",
+                        "nextNodeId": "S02",
+                        "verified": False,
+                        "delivered": False,
+                        "squadAvailable": 8,
+                    }
+                ],
+                "nodes": [{"nodeId": "S01"}],
+            },
+            1001,
+        )
+        self.assertIn(
+            {"action": "SQUAD_SCOUT", "targetNodeId": "S10"},
+            actions,
+        )
+
+    def test_set_guard_at_s10_when_enemy_approaches(self) -> None:
+        strategy = RouteStrategy()
+        strategy.load_start(
+            {
+                "matchId": "m1",
+                "edges": [
+                    {"fromNodeId": "S09", "toNodeId": "S10", "bidirectional": True},
+                    {"fromNodeId": "S10", "toNodeId": "S11", "bidirectional": True},
+                ],
+                "map": {"gameplay": {"roles": {"gateNodeId": "S14", "terminalNodeIds": ["S15"]}}},
+            }
+        )
+        strategy.process_attempted.add("S10")
+        strategy._task_base_total = 90
+        actions = strategy.decide(
+            {
+                "round": 280,
+                "phase": "NORMAL",
+                "players": [
+                    {
+                        "playerId": 1001,
+                        "teamId": "RED",
+                        "state": "IDLE",
+                        "currentNodeId": "S10",
+                        "verified": False,
+                        "delivered": False,
+                        "goodFruit": 95,
+                        "squadAvailable": 6,
+                    },
+                    {
+                        "playerId": 2002,
+                        "teamId": "BLUE",
+                        "state": "MOVING",
+                        "currentNodeId": "S09",
+                        "nextNodeId": "S10",
+                        "delivered": False,
+                    },
+                ],
+                "nodes": [
+                    {"nodeId": "S10", "processRound": 0, "guard": {"active": False}},
+                    {"nodeId": "S09"},
+                ],
+            },
+            1001,
+        )
+        main_actions = [a for a in actions if a.get("action") != "SQUAD_SCOUT"]
+        self.assertEqual("SET_GUARD", main_actions[0]["action"])
+        self.assertEqual("S10", main_actions[0]["targetNodeId"])
 
     def test_break_guard_at_s09_when_s10_guarded(self) -> None:
         strategy = RouteStrategy()
