@@ -136,18 +136,18 @@ class StrategyTests(unittest.TestCase):
                         "playerId": 1001,
                         "teamId": "RED",
                         "state": "IDLE",
-                        "currentNodeId": "S04",
+                        "currentNodeId": "S09",
                         "verified": False,
                         "delivered": False,
-                        "resources": {"SHORT_HORSE": 1},
+                        "resources": {"FAST_HORSE": 1},
                         "buffs": [],
                     }
                 ],
-                "nodes": [{"nodeId": "S04", "processType": "BOARD", "processRound": 7}],
+                "nodes": [{"nodeId": "S09", "processRound": 0}],
             },
             1001,
         )
-        self.assertEqual([{"action": "USE_RESOURCE", "resourceType": "SHORT_HORSE"}], actions)
+        self.assertEqual([{"action": "USE_RESOURCE", "resourceType": "FAST_HORSE"}], actions)
 
 
 if __name__ == "__main__":

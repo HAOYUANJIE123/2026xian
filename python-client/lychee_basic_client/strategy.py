@@ -14,12 +14,16 @@ WAIT_STATES = frozenset(
     }
 )
 
-TASK_TARGET_BASE = 90
-MAIN_ROUTE = ("S01", "S02", "S04", "S05", "S09", "S10", "S11", "S12", "S13", "S14", "S15")
-ROUTE_TASK_NODES = frozenset({"S04", "S05", "S09", "S10"})
-HORSE_USE_NODES = frozenset({"S04", "S05", "S09", "S10", "S11", "S12", "S13"})
-RUSH_SPEED_NODES = frozenset({"S09", "S10", "S11", "S12", "S13", "S14"})
-ICE_USE_FRESHNESS = 90.0
+TASK_TARGET_BASE = 120
+MAIN_ROUTE = ("S01", "S02", "S03", "S07", "S09", "S10", "S11", "S12", "S13", "S14", "S15")
+ROUTE_TASK_NODES = frozenset({"S03", "S07", "S09", "S10", "S11", "S13"})
+ICE_CLAIM_NODES = frozenset({"S03", "S07"})
+ICE_STOPS = ("S03", "S07")
+HORSE_CLAIM_NODES = frozenset({"S09"})
+HORSE_USE_NODES = frozenset({"S07", "S09", "S10", "S11", "S12", "S13"})
+RUSH_PROTECT_NODES = frozenset({"S13", "S14"})
+ICE_USE_FRESHNESS = 92.0
+ICE_USE_LATE_FRESHNESS = 95.0
 
 
 class RouteStrategy:
@@ -36,8 +40,8 @@ class RouteStrategy:
         self._pending_process: Optional[str] = None
         self._last_node_id: Optional[str] = None
         self._resource_claimed_nodes: set[str] = set()
+        self._ice_depleted_nodes: set[str] = set()
         self._completed_task_ids: set[str] = set()
-        self._task_nodes_done: set[str] = set()
         self._task_base_total = 0
 
     def load_start(self, data: dict[str, Any]) -> None:
@@ -56,8 +60,8 @@ class RouteStrategy:
         self._pending_process = None
         self._last_node_id = None
         self._resource_claimed_nodes.clear()
+        self._ice_depleted_nodes.clear()
         self._completed_task_ids.clear()
-        self._task_nodes_done.clear()
         self._task_base_total = 0
 
     def decide(self, data: dict[str, Any], player_id: int) -> list[dict[str, Any]]:
@@ -123,6 +127,10 @@ class RouteStrategy:
             if me.get("verified") and self._can_deliver(me):
                 return {"action": "DELIVER"}
 
+        rush_action = self._rush_protect_action(me, phase, current_node)
+        if rush_action is not None:
+            return rush_action
+
         if phase == "RUSH" and not me.get("verified") and current_node == self.gate_node_id:
             return {"action": "VERIFY_GATE", "targetNodeId": self.gate_node_id}
 
@@ -142,11 +150,7 @@ class RouteStrategy:
         if use_action is not None:
             return use_action
 
-        rush_action = self._rush_speed_action(me, phase, current_node)
-        if rush_action is not None:
-            return rush_action
-
-        goal = self._goal(me, phase)
+        goal = self._goal(me, phase, data, current_node)
         if goal is None or current_node == goal:
             return None
 
@@ -226,9 +230,6 @@ class RouteStrategy:
             score = payload.get("score", 0)
             if isinstance(score, (int, float)):
                 self._task_base_total += int(score)
-            node_id = payload.get("nodeId")
-            if node_id:
-                self._task_nodes_done.add(node_id)
 
     def _task_action(
         self,
@@ -240,20 +241,25 @@ class RouteStrategy:
             return None
         if current_node not in ROUTE_TASK_NODES:
             return None
-        if current_node in self._task_nodes_done:
-            return None
         if self._needs_process(node, current_node):
             return None
+        return self._best_claimable_task(data, current_node)
 
+    def _best_claimable_task(
+        self,
+        data: dict[str, Any],
+        current_node: str,
+    ) -> Optional[dict[str, Any]]:
         best: Optional[dict[str, Any]] = None
         best_score = -1
         for task in data.get("tasks") or []:
             task_id = task.get("taskId")
             if not task_id or task_id in self._completed_task_ids:
                 continue
-            if task.get("nodeId") != current_node:
-                continue
             if not task.get("active") or task.get("completed") or task.get("failed"):
+                continue
+            task_node = task.get("nodeId")
+            if not task_node or not self._can_claim_task(data, current_node, task):
                 continue
             score = task.get("score", 0)
             if score > best_score:
@@ -261,21 +267,58 @@ class RouteStrategy:
                 best = {"action": "CLAIM_TASK", "taskId": task_id}
         return best
 
+    def _can_claim_task(
+        self,
+        data: dict[str, Any],
+        current_node: str,
+        task: dict[str, Any],
+    ) -> bool:
+        task_node = task.get("nodeId")
+        if task_node == current_node:
+            return True
+        template = str(task.get("taskTemplateId") or task.get("templateId") or "")
+        if not template.startswith("T04"):
+            return False
+        if task_node not in self.adjacency.get(current_node, []):
+            return False
+        obstacle_node = self._find_node(data, task_node)
+        return bool(obstacle_node.get("hasObstacle"))
+
+    def _has_t04_for_obstacle(self, data: dict[str, Any], obstacle_node_id: str) -> bool:
+        for task in data.get("tasks") or []:
+            task_id = task.get("taskId")
+            if not task_id or task_id in self._completed_task_ids:
+                continue
+            if task.get("nodeId") != obstacle_node_id:
+                continue
+            if not task.get("active") or task.get("completed") or task.get("failed"):
+                continue
+            template = str(task.get("taskTemplateId") or task.get("templateId") or "")
+            if template.startswith("T04"):
+                return True
+        return False
+
     def _claim_resource_action(self, node: dict[str, Any], current_node: str) -> Optional[dict[str, Any]]:
         if current_node in self._resource_claimed_nodes:
             return None
-        preferred = "SHORT_HORSE" if current_node == "S04" else "FAST_HORSE"
-        if current_node not in ("S04", "S09"):
-            return None
         stock = node.get("resourceStock") or {}
-        if stock.get(preferred, 0) <= 0:
-            return None
-        self._resource_claimed_nodes.add(current_node)
-        return {
-            "action": "CLAIM_RESOURCE",
-            "targetNodeId": current_node,
-            "resourceType": preferred,
-        }
+
+        if current_node in ICE_CLAIM_NODES and stock.get("ICE_BOX", 0) > 0:
+            self._resource_claimed_nodes.add(current_node)
+            return {
+                "action": "CLAIM_RESOURCE",
+                "targetNodeId": current_node,
+                "resourceType": "ICE_BOX",
+            }
+
+        if current_node in HORSE_CLAIM_NODES and stock.get("FAST_HORSE", 0) > 0:
+            self._resource_claimed_nodes.add(current_node)
+            return {
+                "action": "CLAIM_RESOURCE",
+                "targetNodeId": current_node,
+                "resourceType": "FAST_HORSE",
+            }
+        return None
 
     def _use_resource_action(
         self,
@@ -284,9 +327,12 @@ class RouteStrategy:
         phase: str,
     ) -> Optional[dict[str, Any]]:
         resources = me.get("resources") or {}
+        freshness = me.get("freshness", 100)
+
+        if resources.get("ICE_BOX", 0) > 0 and self._should_use_ice(me, current_node, phase, freshness):
+            return {"action": "USE_RESOURCE", "resourceType": "ICE_BOX"}
+
         if self._has_move_buff(me):
-            if resources.get("ICE_BOX", 0) > 0 and me.get("freshness", 100) < ICE_USE_FRESHNESS:
-                return {"action": "USE_RESOURCE", "resourceType": "ICE_BOX"}
             return None
 
         if phase == "RUSH":
@@ -297,12 +343,26 @@ class RouteStrategy:
                 return {"action": "USE_RESOURCE", "resourceType": "FAST_HORSE"}
             if resources.get("SHORT_HORSE", 0) > 0:
                 return {"action": "USE_RESOURCE", "resourceType": "SHORT_HORSE"}
-
-        if resources.get("ICE_BOX", 0) > 0 and me.get("freshness", 100) < ICE_USE_FRESHNESS:
-            return {"action": "USE_RESOURCE", "resourceType": "ICE_BOX"}
         return None
 
-    def _rush_speed_action(
+    def _should_use_ice(
+        self,
+        me: dict[str, Any],
+        current_node: str,
+        phase: str,
+        freshness: float,
+    ) -> bool:
+        if freshness <= 0:
+            return False
+        if freshness >= ICE_USE_LATE_FRESHNESS:
+            return False
+        current_idx = self._route_index(current_node)
+        s07_idx = self._route_index("S07")
+        if current_idx >= s07_idx >= 0 or phase == "RUSH":
+            return freshness < ICE_USE_LATE_FRESHNESS
+        return freshness < ICE_USE_FRESHNESS
+
+    def _rush_protect_action(
         self,
         me: dict[str, Any],
         phase: str,
@@ -312,11 +372,11 @@ class RouteStrategy:
             return None
         if me.get("rushTacticUsedCount", 0) > 0:
             return None
-        if self._has_move_buff(me):
+        if current_node == "S13" and not me.get("verified"):
             return None
-        if current_node not in RUSH_SPEED_NODES and not me.get("verified"):
+        if current_node not in RUSH_PROTECT_NODES:
             return None
-        return {"action": "RUSH_SPEED"}
+        return {"action": "RUSH_PROTECT"}
 
     def _clear_action(
         self,
@@ -337,6 +397,8 @@ class RouteStrategy:
                 return None
         node = self._find_node(data, target)
         if not node.get("hasObstacle"):
+            return None
+        if self._has_t04_for_obstacle(data, target):
             return None
         clear_key = (current_node, target)
         if clear_key in self._failed_clears:
@@ -439,12 +501,44 @@ class RouteStrategy:
         defense = guard.get("defense", 0)
         return bool(owner and owner != team_id and defense > 0)
 
-    def _goal(self, me: dict[str, Any], phase: str) -> Optional[str]:
+    def _goal(
+        self,
+        me: dict[str, Any],
+        phase: str,
+        data: dict[str, Any],
+        current_node: str,
+    ) -> Optional[str]:
         if me.get("verified"):
             return self.terminal_node_id
+
+        final_goal = self.gate_node_id
         if phase == "RUSH":
-            return self.gate_node_id
-        return self.gate_node_id
+            return final_goal
+
+        current_idx = self._route_index(current_node)
+        s09_idx = self._route_index("S09")
+        if 0 <= current_idx < s09_idx:
+            ice_stop = self._next_ice_stop(data, current_node)
+            if ice_stop is not None:
+                return ice_stop
+        return final_goal
+
+    def _next_ice_stop(self, data: dict[str, Any], current_node: str) -> Optional[str]:
+        current_idx = self._route_index(current_node)
+        for node_id in ICE_STOPS:
+            if node_id in self._ice_depleted_nodes:
+                continue
+            stop_idx = self._route_index(node_id)
+            if stop_idx < 0:
+                continue
+            if current_idx > stop_idx:
+                continue
+            node = self._find_node(data, node_id)
+            stock = node.get("resourceStock") or {}
+            if stock.get("ICE_BOX", 0) > 0:
+                return node_id
+            self._ice_depleted_nodes.add(node_id)
+        return None
 
     def _needs_process(self, node: dict[str, Any], current_node: str) -> bool:
         if current_node in self.process_attempted:
