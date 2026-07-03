@@ -64,10 +64,7 @@ def main() -> int:
         print(f"no section for tag {args.tag!r} in {DOC.name}", file=sys.stderr)
         return 1
 
-    commit = args.commit or doc_commit
-    if not commit:
-        print(f"no commit for {args.tag}; pass --commit or add (`sha`) to section header", file=sys.stderr)
-        return 1
+    commit = args.commit or doc_commit or git("rev-parse", "HEAD")
     commit = git("rev-parse", f"{commit}^{{commit}}")
 
     title = args.tag

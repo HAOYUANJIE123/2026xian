@@ -52,7 +52,8 @@ python pack_submission.py --skip-tests
 |-----|------|
 | `v4-guard-break` | 破守、验关/送货、官道+冰鉴；线上 2616 仍卡 guard |
 | `v4.1-pack-checks` | v4 策略 + 打包检查；线上 2614/2616 未送达（S07 卡死、边上不破守） |
-| **`v4.2-contest-guard`** | **当前推荐**：修 S07 争夺后卡死 + 边上主动 BREAK_GUARD（待线上验证） |
+| **`v4.3-idle-break`** | **当前推荐**：保留争夺修复；破守仅在 IDLE，边上不再 FORBIDDEN |
+| `v4.2-contest-guard` | 争夺修复有效；边上 BREAK_GUARD 被服务器拒绝（见线上 replay） |
 
 打 tag（从 `VERSION_TAGS.md` 生成 annotated 消息）：
 

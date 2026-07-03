@@ -442,10 +442,7 @@ class RouteStrategy:
         team_id = me.get("teamId", "")
         if not self._enemy_guard_blocks(data, next_node, team_id):
             return None
-        goal = self._goal(me, phase, data, current_node) or self.terminal_node_id
-        guard_action = self._guard_breakthrough_action(data, me, current_node, goal)
-        if guard_action is not None:
-            return guard_action
+        # BREAK_GUARD is rejected with MOVING_ACTION_FORBIDDEN while on an edge.
         return {"action": "WAIT"}
 
     def _guard_breakthrough_action(
