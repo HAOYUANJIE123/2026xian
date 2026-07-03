@@ -44,7 +44,7 @@ class StrategyTests(unittest.TestCase):
         strategy.load_start(
             {
                 "matchId": "m1",
-                "edges": [{"fromNodeId": "S01", "toNodeId": "S02", "bidirectional": True}],
+                "edges": [{"fromNodeId": "S02", "toNodeId": "S03", "bidirectional": True}],
                 "map": {"gameplay": {"roles": {"gateNodeId": "S14", "terminalNodeIds": ["S15"]}}},
             }
         )
@@ -56,7 +56,7 @@ class StrategyTests(unittest.TestCase):
                     {
                         "playerId": 1001,
                         "state": "IDLE",
-                        "currentNodeId": "S02",
+                        "currentNodeId": "S03",
                         "verified": False,
                         "delivered": False,
                         "goodFruit": 100,
@@ -65,7 +65,7 @@ class StrategyTests(unittest.TestCase):
                 ],
                 "nodes": [
                     {
-                        "nodeId": "S02",
+                        "nodeId": "S03",
                         "processType": "TRANSFER",
                         "processRound": 4,
                     }
@@ -73,7 +73,7 @@ class StrategyTests(unittest.TestCase):
             },
             1001,
         )
-        self.assertEqual([{"action": "PROCESS", "targetNodeId": "S02"}], actions)
+        self.assertEqual([{"action": "PROCESS", "targetNodeId": "S03"}], actions)
 
     def test_picks_reachable_neighbor_when_shortest_hop_is_blocked(self) -> None:
         strategy = RouteStrategy()
@@ -148,6 +148,129 @@ class StrategyTests(unittest.TestCase):
             1001,
         )
         self.assertEqual([{"action": "USE_RESOURCE", "resourceType": "FAST_HORSE"}], actions)
+
+    def test_skips_process_at_s02(self) -> None:
+        strategy = RouteStrategy()
+        strategy.load_start(
+            {
+                "matchId": "m1",
+                "edges": [{"fromNodeId": "S02", "toNodeId": "S03", "bidirectional": True}],
+                "map": {"gameplay": {"roles": {"gateNodeId": "S14", "terminalNodeIds": ["S15"]}}},
+            }
+        )
+        actions = strategy.decide(
+            {
+                "round": 50,
+                "phase": "NORMAL",
+                "players": [
+                    {
+                        "playerId": 1001,
+                        "teamId": "BLUE",
+                        "state": "IDLE",
+                        "currentNodeId": "S02",
+                        "verified": False,
+                        "delivered": False,
+                    }
+                ],
+                "nodes": [
+                    {
+                        "nodeId": "S02",
+                        "processType": "TRANSFER",
+                        "processRound": 4,
+                    }
+                ],
+            },
+            1001,
+        )
+        self.assertNotEqual("PROCESS", actions[0].get("action") if actions else None)
+
+    def test_guard_hold_waits_at_s09_before_moving(self) -> None:
+        strategy = RouteStrategy()
+        strategy.load_start(
+            {
+                "matchId": "m1",
+                "edges": [
+                    {"fromNodeId": "S09", "toNodeId": "S10", "bidirectional": True},
+                    {"fromNodeId": "S10", "toNodeId": "S14", "bidirectional": True},
+                ],
+                "map": {"gameplay": {"roles": {"gateNodeId": "S14", "terminalNodeIds": ["S15"]}}},
+            }
+        )
+        strategy.process_attempted.add("S09")
+        actions = strategy.decide(
+            {
+                "round": 260,
+                "phase": "NORMAL",
+                "players": [
+                    {
+                        "playerId": 1001,
+                        "teamId": "BLUE",
+                        "state": "IDLE",
+                        "currentNodeId": "S09",
+                        "verified": False,
+                        "delivered": False,
+                        "goodFruit": 99,
+                        "badFruit": 1,
+                    }
+                ],
+                "nodes": [
+                    {"nodeId": "S09", "processRound": 0},
+                    {"nodeId": "S10", "guard": {"active": False}},
+                ],
+            },
+            1001,
+        )
+        self.assertEqual([{"action": "WAIT"}], actions)
+
+    def test_break_guard_at_s09_when_s10_guarded(self) -> None:
+        strategy = RouteStrategy()
+        strategy.load_start(
+            {
+                "matchId": "m1",
+                "edges": [
+                    {"fromNodeId": "S09", "toNodeId": "S10", "bidirectional": True},
+                    {"fromNodeId": "S10", "toNodeId": "S14", "bidirectional": True},
+                ],
+                "map": {"gameplay": {"roles": {"gateNodeId": "S14", "terminalNodeIds": ["S15"]}}},
+            }
+        )
+        strategy.process_attempted.add("S09")
+        actions = strategy.decide(
+            {
+                "round": 298,
+                "phase": "NORMAL",
+                "players": [
+                    {
+                        "playerId": 1001,
+                        "teamId": "BLUE",
+                        "state": "IDLE",
+                        "currentNodeId": "S09",
+                        "verified": False,
+                        "delivered": False,
+                        "goodFruit": 99,
+                        "badFruit": 1,
+                    }
+                ],
+                "nodes": [
+                    {"nodeId": "S09", "processRound": 0},
+                    {
+                        "nodeId": "S10",
+                        "guard": {
+                            "active": True,
+                            "ownerTeamId": "RED",
+                            "defense": 6,
+                        },
+                    },
+                ],
+            },
+            1001,
+        )
+        self.assertEqual("BREAK_GUARD", actions[0]["action"])
+        self.assertEqual("S10", actions[0]["targetNodeId"])
+        self.assertGreaterEqual(
+            actions[0]["goodFruit"] * 2 + actions[0]["badFruit"] * 3,
+            6,
+        )
 
 
 if __name__ == "__main__":

@@ -21,7 +21,11 @@ ICE_CLAIM_NODES = frozenset({"S03", "S07"})
 ICE_STOPS = ("S03", "S07")
 HORSE_CLAIM_NODES = frozenset({"S09"})
 HORSE_USE_NODES = frozenset({"S07", "S09", "S10", "S11", "S12", "S13"})
-RUSH_PROTECT_NODES = frozenset({"S13", "S14"})
+RUSH_PROTECT_NODES = frozenset({"S13"})
+SKIP_PROCESS_NODES = frozenset({"S02"})
+GUARD_HOLD_NODES = frozenset({"S09", "S10", "S11", "S12"})
+GUARD_HOLD_MAX_ROUNDS = 50
+EDGE_GUARD_PASS_AFTER = 30
 ICE_USE_FRESHNESS = 92.0
 ICE_USE_LATE_FRESHNESS = 95.0
 
@@ -44,6 +48,8 @@ class RouteStrategy:
         self._ice_depleted_nodes: set[str] = set()
         self._completed_task_ids: set[str] = set()
         self._task_base_total = 0
+        self._guard_hold_rounds: dict[str, int] = {}
+        self._edge_guard_waits: dict[tuple[str, str], int] = {}
 
     def load_start(self, data: dict[str, Any]) -> None:
         roles = (data.get("map") or {}).get("gameplay", {}).get("roles", {})
@@ -65,6 +71,8 @@ class RouteStrategy:
         self._ice_depleted_nodes.clear()
         self._completed_task_ids.clear()
         self._task_base_total = 0
+        self._guard_hold_rounds.clear()
+        self._edge_guard_waits.clear()
 
     def decide(self, data: dict[str, Any], player_id: int) -> list[dict[str, Any]]:
         actions: list[dict[str, Any]] = []
@@ -121,6 +129,7 @@ class RouteStrategy:
 
         if self._last_node_id and self._last_node_id != current_node:
             self.process_attempted.discard(self._last_node_id)
+            self._guard_hold_rounds.pop(self._last_node_id, None)
         self._last_node_id = current_node
 
         phase = data.get("phase", "NORMAL")
@@ -167,6 +176,14 @@ class RouteStrategy:
             self._pending_process = current_node
             return {"action": "PROCESS", "targetNodeId": current_node}
 
+        if current_node in GUARD_HOLD_NODES:
+            resource_action = self._claim_resource_action(node, current_node)
+            if resource_action is not None:
+                return resource_action
+            use_action = self._use_resource_action(me, current_node, phase)
+            if use_action is not None:
+                return use_action
+
         task_action = self._task_action(data, current_node, node)
         if task_action is not None:
             return task_action
@@ -190,6 +207,10 @@ class RouteStrategy:
         guard_action = self._guard_breakthrough_action(data, me, current_node, goal)
         if guard_action is not None:
             return guard_action
+
+        hold_action = self._guard_hold_action(data, me, current_node)
+        if hold_action is not None:
+            return hold_action
 
         target = self._pick_move_target(data, me, current_node, goal)
         if target is None:
@@ -229,7 +250,7 @@ class RouteStrategy:
         for result in data.get("actionResults") or []:
             if result.get("playerId") != player_id:
                 continue
-            if result.get("action") != "BREAK_GUARD":
+            if result.get("action") not in ("BREAK_GUARD", "FORCED_PASS"):
                 continue
             target = result.get("targetNodeId")
             current = self._last_node_id
@@ -441,9 +462,52 @@ class RouteStrategy:
             return None
         team_id = me.get("teamId", "")
         if not self._enemy_guard_blocks(data, next_node, team_id):
+            self._edge_guard_waits.pop((current_node, next_node), None)
             return None
-        # BREAK_GUARD is rejected with MOVING_ACTION_FORBIDDEN while on an edge.
+
+        edge_key = (current_node, next_node)
+        waits = self._edge_guard_waits.get(edge_key, 0) + 1
+        self._edge_guard_waits[edge_key] = waits
+
+        defense = self._guard_defense(data, next_node, team_id)
+        if defense <= 1:
+            return None
+
+        if waits >= EDGE_GUARD_PASS_AFTER:
+            break_key = (current_node, next_node)
+            if break_key not in self._failed_breaks:
+                return {"action": "FORCED_PASS", "targetNodeId": next_node}
+
         return {"action": "WAIT"}
+
+    def _guard_hold_action(
+        self,
+        data: dict[str, Any],
+        me: dict[str, Any],
+        current_node: str,
+    ) -> Optional[dict[str, Any]]:
+        if current_node not in GUARD_HOLD_NODES:
+            return None
+        next_hop = self._next_main_route_hop(current_node)
+        if not next_hop:
+            return None
+        team_id = me.get("teamId", "")
+        if self._enemy_guard_blocks(data, next_hop, team_id):
+            self._guard_hold_rounds.pop(current_node, None)
+            return None
+
+        rounds = self._guard_hold_rounds.get(current_node, 0) + 1
+        self._guard_hold_rounds[current_node] = rounds
+        if rounds >= GUARD_HOLD_MAX_ROUNDS:
+            self._guard_hold_rounds.pop(current_node, None)
+            return None
+        return {"action": "WAIT"}
+
+    def _next_main_route_hop(self, current_node: str) -> Optional[str]:
+        idx = self._route_index(current_node)
+        if idx < 0 or idx + 1 >= len(MAIN_ROUTE):
+            return None
+        return MAIN_ROUTE[idx + 1]
 
     def _guard_breakthrough_action(
         self,
@@ -493,8 +557,8 @@ class RouteStrategy:
 
     @staticmethod
     def _plan_break_investment(me: dict[str, Any], defense: int) -> tuple[int, int]:
-        available_good = min(2, int(me.get("goodFruit", 0)))
-        available_bad = min(2, int(me.get("badFruit", 0)))
+        available_good = min(3, int(me.get("goodFruit", 0)))
+        available_bad = min(3, int(me.get("badFruit", 0)))
         best: Optional[tuple[int, int]] = None
         best_rank: Optional[tuple[int, int]] = None
 
@@ -512,7 +576,7 @@ class RouteStrategy:
         if best is not None:
             return best
         if available_good > 0:
-            return available_good, min(available_bad, 2)
+            return available_good, min(available_bad, 3)
         if available_bad > 0:
             return 0, available_bad
         return 0, 0
@@ -711,6 +775,8 @@ class RouteStrategy:
         return None
 
     def _needs_process(self, node: dict[str, Any], current_node: str) -> bool:
+        if current_node in SKIP_PROCESS_NODES:
+            return False
         if current_node in self.process_attempted:
             return False
         process_type = node.get("processType")
