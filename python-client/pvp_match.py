@@ -9,7 +9,7 @@ import sys
 import time
 from pathlib import Path
 
-from debug_paths import PROJECT_ROOT, SERVER_DIR
+from debug_paths import PROJECT_ROOT, SERVER_DIR, map_file, resolve_map_arg
 
 ROOT = Path(__file__).resolve().parent
 TEAMMATE_ROOT = PROJECT_ROOT / "deng" / "extracted"
@@ -83,6 +83,7 @@ def run_pvp_match(
     seed: str = DEFAULT_SEED,
     round_timeout_ms: int = 80,
     wait_timeout_sec: int = 300,
+    map_json: str | None = None,
 ) -> Path:
     if not SERVER_EXE.is_file():
         raise SystemExit(f"pvp match skipped: missing server {SERVER_EXE}")
@@ -90,6 +91,11 @@ def run_pvp_match(
         raise SystemExit(f"pvp match skipped: missing our client {OUR_CLIENT}")
     if not THEIR_CLIENT.is_file():
         raise SystemExit(f"pvp match skipped: missing teammate client {THEIR_CLIENT}")
+
+    map_path = map_file(map_json)
+    if not map_path.is_file():
+        raise SystemExit(f"pvp match skipped: missing map {map_path}")
+    map_arg = resolve_map_arg(map_json)
 
     _cleanup_outputs()
     match_id = "pvp-local"
@@ -103,6 +109,8 @@ def run_pvp_match(
         seed,
         "--match-id",
         match_id,
+        "-m",
+        map_arg,
         "-p",
         str(port),
         "-r",

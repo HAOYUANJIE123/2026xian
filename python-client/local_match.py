@@ -9,7 +9,7 @@ import sys
 import time
 from pathlib import Path
 
-from debug_paths import DEBUG_ROOT, DEMO_DIR, SERVER_DIR
+from debug_paths import DEBUG_ROOT, DEMO_DIR, SERVER_DIR, map_file, resolve_map_arg
 from replay_gate import audit_outcome
 
 ROOT = Path(__file__).resolve().parent
@@ -55,6 +55,7 @@ def run_local_match(
     seed: str = DEFAULT_SEED,
     round_timeout_ms: int = 80,
     wait_timeout_sec: int = 240,
+    map_json: str | None = None,
 ) -> Path:
     if not SERVER_EXE.is_file():
         raise SystemExit(f"local match skipped: missing server {SERVER_EXE}")
@@ -62,6 +63,11 @@ def run_local_match(
         raise SystemExit(f"local match skipped: missing demo {DEMO_EXE}")
     if not CLIENT_SCRIPT.is_file():
         raise SystemExit(f"local match skipped: missing client {CLIENT_SCRIPT}")
+
+    map_path = map_file(map_json)
+    if not map_path.is_file():
+        raise SystemExit(f"local match skipped: missing map {map_path}")
+    map_arg = resolve_map_arg(map_json)
 
     _cleanup_outputs()
     match_id = "validate-local"
@@ -75,6 +81,8 @@ def run_local_match(
         seed,
         "--match-id",
         match_id,
+        "-m",
+        map_arg,
         "-p",
         str(port),
         "-r",
@@ -113,7 +121,8 @@ def run_local_match(
     demo_proc: subprocess.Popen | None = None
     try:
         print(
-            f"local match: seed={seed} port={port} round_timeout_ms={round_timeout_ms}",
+            f"local match: seed={seed} port={port} map={map_arg} "
+            f"round_timeout_ms={round_timeout_ms}",
             flush=True,
         )
         server_proc = subprocess.Popen(

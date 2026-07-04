@@ -1,5 +1,7 @@
 # 上传前 Checklist
 
+**本地调测包：V5**（`official_latest/V5/调测包及赛题相关文档_V5/`）。小组赛/复活赛地图：`server/map_config.json`；36 强进 8 强变种：`server/map_config_variant_a.json`。换图：`set MAP_JSON=map_config_variant_a.json` 或 `validate_before_upload.py --map map_config_variant_a.json`。
+
 **不要反复上线试错。** 改完策略后由 agent **自动**在本机跑：
 
 ```powershell

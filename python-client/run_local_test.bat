@@ -2,13 +2,15 @@
 chcp 65001 >nul
 setlocal
 
-rem One-click local test: server + your Python bot (1001) + official demo (2002)
-rem Usage: run_local_test.bat [port] [seed]
+rem One-click local test: V5 server + your Python bot (1001) + official demo (2002)
+rem Usage: run_local_test.bat [port] [seed] [map-json]
+rem   map-json default: map_config.json  (variant: map_config_variant_a.json)
 rem   set NO_UI=1          skip replay UI
 rem   set ROUND_TIMEOUT_MS=200   faster rounds (default 500)
+rem   set MAP_JSON=map_config_variant_a.json   alternate map
 
 set "ROOT=%~dp0"
-set "DEBUG_ROOT=%ROOT%..\official_latest\最新地图和调测包\调测包及赛题相关文档_V4\调测"
+set "DEBUG_ROOT=%ROOT%..\official_latest\V5\调测包及赛题相关文档_V5\调测"
 set "SERVER_DIR=%DEBUG_ROOT%\server"
 set "DEMO_DIR=%DEBUG_ROOT%\demo"
 set "PYTHON_CLIENT=%ROOT%start.bat"
@@ -19,15 +21,24 @@ if not "%~1"=="" set "PORT=%~1"
 set "SEED=20260618"
 if not "%~2"=="" set "SEED=%~2"
 
+if "%MAP_JSON%"=="" set "MAP_JSON=map_config.json"
+if not "%~3"=="" set "MAP_JSON=%~3"
+
 if "%ROUND_TIMEOUT_MS%"=="" set "ROUND_TIMEOUT_MS=500"
 if "%WAIT_TIMEOUT_SEC%"=="" set "WAIT_TIMEOUT_SEC=900"
 
 set "SERVER_EXE=%SERVER_DIR%\lychee-arena-server.exe"
+set "MAP_JSON_FILE=%SERVER_DIR%\%MAP_JSON%"
 set "MATCH_ID=local-debug-l1"
 
 if not exist "%SERVER_EXE%" (
   echo [ERROR] Server not found: "%SERVER_EXE%"
-  echo Make sure official_latest\最新地图和调测包 is extracted under the project root.
+  echo Extract 调测包及赛题相关文档_V5.rar to official_latest\V5\
+  exit /b 1
+)
+
+if not exist "%MAP_JSON_FILE%" (
+  echo [ERROR] Map not found: "%MAP_JSON_FILE%"
   exit /b 1
 )
 
@@ -43,8 +54,8 @@ if not exist "%DEMO_DIR%\start.bat" (
 
 del /q "%SERVER_DIR%\replay.txt" "%SERVER_DIR%\debug_replay.txt" "%SERVER_DIR%\client_debug.txt" "%SERVER_DIR%\data.csv" "%SERVER_DIR%\log.txt" 2>nul
 
-echo [1/3] Starting server on 127.0.0.1:%PORT% seed=%SEED%
-start "lychee-server" /D "%SERVER_DIR%" cmd /c "chcp 65001>nul & lychee-arena-server.exe --mode client-debug --debug-visibility full --seed %SEED% --match-id %MATCH_ID% -p %PORT% -r . -a %ROUND_TIMEOUT_MS% -c 30000 -d 30000"
+echo [1/3] Starting server on 127.0.0.1:%PORT% seed=%SEED% map=%MAP_JSON%
+start "lychee-server" /D "%SERVER_DIR%" cmd /c "chcp 65001>nul & lychee-arena-server.exe --mode client-debug --debug-visibility full --seed %SEED% --match-id %MATCH_ID% -m %MAP_JSON% -p %PORT% -r . -a %ROUND_TIMEOUT_MS% -c 30000 -d 30000"
 
 ping 127.0.0.1 -n 4 >nul
 

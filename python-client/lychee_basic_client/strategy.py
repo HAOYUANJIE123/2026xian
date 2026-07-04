@@ -54,7 +54,7 @@ EDGE_GUARD_PASS_AFTER = 8
 CLEAR_NEAR_MAX_ROUNDS = 30
 ICE_USE_FRESHNESS = 92.0
 ICE_USE_LATE_FRESHNESS = 95.0
-FIRST_HALF_PROGRESS_NODE = "S09"
+FIRST_HALF_PROGRESS_NODE = "S07"
 NON_BLACKLIST_MOVE_ERRORS = frozenset(
     {
         "PROCESS_REQUIRED",
@@ -652,6 +652,16 @@ class RouteStrategy:
                 self._last_dock_process_round = data.get("round")
             self._process_started_nodes.add(current_node)
             return {"action": "PROCESS", "targetNodeId": current_node}
+
+        if (
+            current_node in ROUTE_TASK_NODES
+            and self._task_base_total < TASK_TARGET_BASE
+        ):
+            route_task_action = self._task_action(
+                data, current_node, node, player_id
+            )
+            if route_task_action is not None:
+                return route_task_action
 
         defer_side = self._defer_side_objectives_for_progress(
             data, player_id, phase, current_node
@@ -2086,6 +2096,13 @@ class RouteStrategy:
         team_id = me.get("teamId", "")
         targets: list[tuple[int, str]] = []
 
+        if self._needs_route_task_coverage():
+            main_hop = self._next_main_route_hop(current_node)
+            if main_hop and self._enemy_guard_blocks(data, main_hop, team_id):
+                targets.append(
+                    (self._guard_defense(data, main_hop, team_id), main_hop)
+                )
+
         path = shortest_weighted_path(self.weighted_adjacency, current_node, goal)
         if len(path) >= 2:
             hop = path[1]
@@ -2157,26 +2174,37 @@ class RouteStrategy:
     ) -> Optional[dict[str, Any]]:
         if me.get("goodFruit", 0) < 1:
             return None
+
+        candidates: list[str] = []
+        if self._needs_route_task_coverage():
+            main_hop = self._next_main_route_hop(current_node)
+            if main_hop:
+                candidates.append(main_hop)
         path = shortest_weighted_path(self.weighted_adjacency, current_node, goal)
-        if len(path) < 2:
-            return None
-        target = path[1]
-        if self._is_backtrack(current_node, target):
-            target = self._best_forward_neighbor(data, me, current_node, goal)
-            if target is None:
-                return None
-        node = self._find_node(data, target)
-        if not node.get("hasObstacle"):
-            return None
-        if self._has_t04_for_obstacle(data, target):
-            return None
-        if not self._can_clear_node_soon(me, current_node, target):
-            return None
-        clear_key = (current_node, target)
-        if clear_key in self._failed_clears:
-            return None
-        self._pending_clear = clear_key
-        return {"action": "CLEAR", "targetNodeId": target}
+        if len(path) >= 2:
+            hop = path[1]
+            if not self._is_backtrack(current_node, hop) and hop not in candidates:
+                candidates.append(hop)
+        forward = self._best_forward_neighbor(data, me, current_node, goal)
+        if forward and forward not in candidates:
+            candidates.append(forward)
+
+        for target in candidates:
+            if self._skips_pending_task_route_nodes(current_node, target):
+                continue
+            node = self._find_node(data, target)
+            if not node.get("hasObstacle"):
+                continue
+            if self._has_t04_for_obstacle(data, target):
+                continue
+            if not self._can_clear_node_soon(me, current_node, target):
+                continue
+            clear_key = (current_node, target)
+            if clear_key in self._failed_clears:
+                continue
+            self._pending_clear = clear_key
+            return {"action": "CLEAR", "targetNodeId": target}
+        return None
 
     def _escape_process_node_action(
         self,
@@ -2231,22 +2259,18 @@ class RouteStrategy:
         team_id = me.get("teamId", "")
         main_hop = self._next_main_route_hop(current_node)
         if main_hop and main_hop in self.adjacency.get(current_node, []):
-            move_key = (current_node, main_hop)
-            if (
-                ignore_failed or move_key not in self._failed_moves
-            ) and not self._is_move_blocked(data, main_hop, team_id):
+            if self._move_target_allowed(
+                data, me, current_node, main_hop, ignore_failed=ignore_failed
+            ):
                 return main_hop
 
         path = shortest_weighted_path(self.weighted_adjacency, current_node, goal)
         if len(path) >= 2:
             target = path[1]
-            if self._is_forward_progress(current_node, target, goal):
-                move_key = (current_node, target)
-                team_id = me.get("teamId", "")
-                if (
-                    ignore_failed or move_key not in self._failed_moves
-                ) and not self._is_move_blocked(data, target, team_id):
-                    return target
+            if self._is_forward_progress(current_node, target, goal) and self._move_target_allowed(
+                data, me, current_node, target, ignore_failed=ignore_failed
+            ):
+                return target
 
         forward = self._best_forward_neighbor(
             data, me, current_node, goal, ignore_failed=ignore_failed
@@ -2258,15 +2282,13 @@ class RouteStrategy:
         if not neighbors:
             return None
 
-        team_id = me.get("teamId", "")
         ranked: list[tuple[int, str]] = []
         for neighbor in neighbors:
             if not self._is_forward_progress(current_node, neighbor, goal):
                 continue
-            move_key = (current_node, neighbor)
-            if not ignore_failed and move_key in self._failed_moves:
-                continue
-            if self._is_move_blocked(data, neighbor, team_id):
+            if not self._move_target_allowed(
+                data, me, current_node, neighbor, ignore_failed=ignore_failed
+            ):
                 continue
             sub_path = shortest_weighted_path(self.weighted_adjacency, neighbor, goal)
             if not sub_path:
@@ -2288,15 +2310,13 @@ class RouteStrategy:
         *,
         ignore_failed: bool = False,
     ) -> Optional[str]:
-        team_id = me.get("teamId", "")
         ranked: list[tuple[int, str]] = []
         for neighbor in self.adjacency.get(current_node, []):
             if not self._is_forward_progress(current_node, neighbor, goal):
                 continue
-            move_key = (current_node, neighbor)
-            if not ignore_failed and move_key in self._failed_moves:
-                continue
-            if self._is_move_blocked(data, neighbor, team_id):
+            if not self._move_target_allowed(
+                data, me, current_node, neighbor, ignore_failed=ignore_failed
+            ):
                 continue
             sub_path = shortest_weighted_path(self.weighted_adjacency, neighbor, goal)
             if not sub_path:
@@ -2327,6 +2347,41 @@ class RouteStrategy:
             return MAIN_ROUTE.index(node_id)
         except ValueError:
             return -1
+
+    def _needs_route_task_coverage(self) -> bool:
+        return self._task_base_total < TASK_TARGET_BASE
+
+    def _skips_pending_task_route_nodes(
+        self, current_node: str, target_node: str
+    ) -> bool:
+        """Reject branch shortcuts like S10->S13 while S11 tasks are still pending."""
+        if not self._needs_route_task_coverage():
+            return False
+        current_idx = self._route_index(current_node)
+        target_idx = self._route_index(target_node)
+        if current_idx < 0 or target_idx <= current_idx:
+            return False
+        for node_id in MAIN_ROUTE[current_idx + 1 : target_idx]:
+            if node_id in ROUTE_TASK_NODES:
+                return True
+        return False
+
+    def _move_target_allowed(
+        self,
+        data: dict[str, Any],
+        me: dict[str, Any],
+        current_node: str,
+        target_node: str,
+        *,
+        ignore_failed: bool = False,
+    ) -> bool:
+        if self._skips_pending_task_route_nodes(current_node, target_node):
+            return False
+        move_key = (current_node, target_node)
+        if not ignore_failed and move_key in self._failed_moves:
+            return False
+        team_id = me.get("teamId", "")
+        return not self._is_move_blocked(data, target_node, team_id)
 
     def _is_backtrack(self, current_node: str, target_node: str) -> bool:
         current_idx = self._route_index(current_node)

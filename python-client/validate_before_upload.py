@@ -55,6 +55,12 @@ def parse_args() -> argparse.Namespace:
         default=80,
         help="Local match round timeout (default 80)",
     )
+    parser.add_argument(
+        "--map",
+        dest="map_json",
+        default=None,
+        help="Server map JSON (relative to V5 server dir, default map_config.json)",
+    )
     return parser.parse_args()
 
 
@@ -86,7 +92,10 @@ def main() -> None:
         if validate_local_match is None:
             raise SystemExit("local_match module unavailable")
         print("[4/4] Local Demo match (headless)...", flush=True)
-        validate_local_match(round_timeout_ms=args.round_timeout_ms)
+        validate_local_match(
+            round_timeout_ms=args.round_timeout_ms,
+            map_json=args.map_json,
+        )
 
     print("\nALL CHECKS PASSED — safe to upload.", flush=True)
 
