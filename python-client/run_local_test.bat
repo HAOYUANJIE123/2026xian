@@ -8,7 +8,7 @@ rem   set NO_UI=1          skip replay UI
 rem   set ROUND_TIMEOUT_MS=200   faster rounds (default 500)
 
 set "ROOT=%~dp0"
-set "DEBUG_ROOT=%ROOT%..\比赛资料\比赛资料\调测包及赛题相关文档_V1\调测"
+set "DEBUG_ROOT=%ROOT%..\official_latest\最新地图和调测包\调测包及赛题相关文档_V4\调测"
 set "SERVER_DIR=%DEBUG_ROOT%\server"
 set "DEMO_DIR=%DEBUG_ROOT%\demo"
 set "PYTHON_CLIENT=%ROOT%start.bat"
@@ -27,7 +27,7 @@ set "MATCH_ID=local-debug-l1"
 
 if not exist "%SERVER_EXE%" (
   echo [ERROR] Server not found: "%SERVER_EXE%"
-  echo Make sure 比赛资料 folder exists under the project root.
+  echo Make sure official_latest\最新地图和调测包 is extracted under the project root.
   exit /b 1
 )
 

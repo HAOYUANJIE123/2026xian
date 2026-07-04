@@ -9,11 +9,10 @@ import sys
 import time
 from pathlib import Path
 
+from debug_paths import PROJECT_ROOT, SERVER_DIR
+
 ROOT = Path(__file__).resolve().parent
-PROJECT_ROOT = ROOT.parent
 TEAMMATE_ROOT = PROJECT_ROOT / "deng" / "extracted"
-DEBUG_ROOT = PROJECT_ROOT / "比赛资料" / "比赛资料" / "调测包及赛题相关文档_V1" / "调测"
-SERVER_DIR = DEBUG_ROOT / "server"
 SERVER_EXE = SERVER_DIR / "lychee-arena-server.exe"
 OUR_CLIENT = ROOT / "basic_client.py"
 THEIR_CLIENT = TEAMMATE_ROOT / "basic_client.py"

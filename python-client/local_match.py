@@ -9,13 +9,10 @@ import sys
 import time
 from pathlib import Path
 
+from debug_paths import DEBUG_ROOT, DEMO_DIR, SERVER_DIR
 from replay_gate import audit_outcome
 
 ROOT = Path(__file__).resolve().parent
-PROJECT_ROOT = ROOT.parent
-DEBUG_ROOT = PROJECT_ROOT / "比赛资料" / "比赛资料" / "调测包及赛题相关文档_V1" / "调测"
-SERVER_DIR = DEBUG_ROOT / "server"
-DEMO_DIR = DEBUG_ROOT / "demo"
 SERVER_EXE = SERVER_DIR / "lychee-arena-server.exe"
 DEMO_EXE = DEMO_DIR / "l1-demo.exe"
 CLIENT_SCRIPT = ROOT / "basic_client.py"
