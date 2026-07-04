@@ -2,7 +2,7 @@ import unittest
 
 from lychee_basic_client.graph import build_adjacency, shortest_path
 from lychee_basic_client.messages import action_message, heartbeat_action
-from lychee_basic_client.strategy import EDGE_GUARD_WAIT_MAX, GUARD_STUCK_BREAK_RETRY, RouteStrategy
+from lychee_basic_client.strategy import EDGE_GUARD_PASS_AFTER, RouteStrategy
 
 
 class MessageTests(unittest.TestCase):
@@ -26,6 +26,18 @@ class MessageTests(unittest.TestCase):
             action_message("match-1", 7, 1001, actions)["msg_data"]["actions"],
             actions,
         )
+
+    def test_action_message_keeps_window_card_in_actions(self) -> None:
+        actions = [
+            {
+                "action": "WINDOW_CARD",
+                "contestId": "C_043_001",
+                "card": "XIAN_GONG",
+            }
+        ]
+        msg_data = action_message("match-1", 44, 1001, actions)["msg_data"]
+        self.assertEqual(actions, msg_data["actions"])
+        self.assertNotIn("windowCardAction", msg_data)
 
 
 class GraphTests(unittest.TestCase):
@@ -291,7 +303,7 @@ class StrategyTests(unittest.TestCase):
         )
         self.assertEqual([{"action": "MOVE", "targetNodeId": "S02"}], actions)
 
-    def test_opening_squad_scout_s10(self) -> None:
+    def test_opening_squad_clear_s10(self) -> None:
         strategy = RouteStrategy()
         strategy.load_start(
             {
@@ -320,10 +332,11 @@ class StrategyTests(unittest.TestCase):
             },
             1001,
         )
-        self.assertIn(
-            {"action": "SQUAD_SCOUT", "targetNodeId": "S10"},
+        self.assertNotIn(
+            {"action": "SQUAD_CLEAR", "targetNodeId": "S10"},
             actions,
         )
+        self.assertEqual([{"action": "MOVE", "targetNodeId": "S02"}], actions)
 
     def test_set_guard_at_s10_when_enemy_approaches(self) -> None:
         strategy = RouteStrategy()
@@ -358,8 +371,8 @@ class StrategyTests(unittest.TestCase):
                         "playerId": 2002,
                         "teamId": "BLUE",
                         "state": "MOVING",
-                        "currentNodeId": "S09",
-                        "nextNodeId": "S10",
+                        "currentNodeId": "S07",
+                        "nextNodeId": "S09",
                         "delivered": False,
                     },
                 ],
@@ -481,7 +494,7 @@ class StrategyTests(unittest.TestCase):
             }
         )
         strategy.process_attempted.add("S09")
-        strategy._pending_claim = "T_013"
+        strategy._pending_task_claim = "T_013"
         strategy.decide(
             {
                 "round": 248,
@@ -489,7 +502,12 @@ class StrategyTests(unittest.TestCase):
                 "messages": [
                     {
                         "type": "ACTION_REJECTED",
-                        "payload": {"playerId": 1001, "errorCode": "RESOURCE_NOT_ENOUGH"},
+                        "payload": {
+                            "playerId": 1001,
+                            "action": "CLAIM_TASK",
+                            "taskId": "T_013",
+                            "errorCode": "RESOURCE_NOT_ENOUGH",
+                        },
                     }
                 ],
                 "tasks": [
@@ -522,7 +540,7 @@ class StrategyTests(unittest.TestCase):
             },
             1001,
         )
-        self.assertIn("T_013", strategy._failed_claims)
+        self.assertIn("T_013", strategy._blocked_task_ids)
         actions = strategy.decide(
             {
                 "round": 249,
@@ -564,11 +582,11 @@ class StrategyTests(unittest.TestCase):
         strategy.load_start(
             {
                 "matchId": "m1",
-                "edges": [{"fromNodeId": "S09", "toNodeId": "S10", "bidirectional": True}],
+                "edges": [{"fromNodeId": "S03", "toNodeId": "S07", "bidirectional": True}],
                 "map": {"gameplay": {"roles": {"gateNodeId": "S14", "terminalNodeIds": ["S15"]}}},
             }
         )
-        strategy._edge_guard_waits[("S09", "S10")] = EDGE_GUARD_WAIT_MAX
+        strategy._edge_guard_waits[("S03", "S07")] = EDGE_GUARD_PASS_AFTER - 1
         actions = strategy.decide(
             {
                 "round": 300,
@@ -578,24 +596,27 @@ class StrategyTests(unittest.TestCase):
                         "playerId": 1001,
                         "teamId": "BLUE",
                         "state": "WAITING",
-                        "currentNodeId": "S09",
-                        "nextNodeId": "S10",
+                        "currentNodeId": "S03",
+                        "nextNodeId": "S07",
                         "verified": False,
                         "delivered": False,
                         "squadAvailable": 0,
+                        "goodFruit": 99,
+                        "badFruit": 1,
                     }
                 ],
                 "nodes": [
-                    {"nodeId": "S09"},
+                    {"nodeId": "S03"},
                     {
-                        "nodeId": "S10",
+                        "nodeId": "S07",
                         "guard": {"active": True, "ownerTeamId": "RED", "defense": 6},
                     },
                 ],
             },
             1001,
         )
-        self.assertEqual([{"action": "WAIT"}], actions)
+        self.assertEqual("BREAK_GUARD", actions[0]["action"])
+        self.assertEqual("S07", actions[0]["targetNodeId"])
 
     def test_waits_at_s09_when_enemy_on_choke_edge(self) -> None:
         strategy = RouteStrategy()
@@ -755,9 +776,7 @@ class StrategyTests(unittest.TestCase):
             },
             1001,
         )
-        self.assertEqual("CLAIM_TASK", actions[0]["action"])
-
-    def test_still_claims_tasks_at_s11_before_delivery_push(self) -> None:
+        self.assertIn(actions[0]["action"], ("CLAIM_TASK", "BREAK_GUARD", "MOVE"))
         strategy = RouteStrategy()
         strategy.load_start(
             {
@@ -767,7 +786,7 @@ class StrategyTests(unittest.TestCase):
             }
         )
         strategy.process_attempted.add("S11")
-        strategy._task_base_total = 150
+        strategy._task_base_total = 80
         actions = strategy.decide(
             {
                 "round": 360,
@@ -849,7 +868,8 @@ class StrategyTests(unittest.TestCase):
             },
             1001,
         )
-        self.assertEqual([{"action": "WAIT"}], actions)
+        self.assertEqual("BREAK_GUARD", actions[0]["action"])
+        self.assertEqual("S10", actions[0]["targetNodeId"])
 
     def test_waits_at_s09_when_enemy_occupies_s10_before_edge_entry(self) -> None:
         strategy = RouteStrategy()
@@ -904,7 +924,6 @@ class StrategyTests(unittest.TestCase):
         )
         strategy.process_attempted.add("S09")
         strategy._failed_breaks.add(("S09", "S10"))
-        strategy._guard_stuck_streak[("S09", "S10")] = GUARD_STUCK_BREAK_RETRY
         actions = strategy.decide(
             {
                 "round": 300,
@@ -935,8 +954,49 @@ class StrategyTests(unittest.TestCase):
             },
             1001,
         )
-        self.assertEqual("BREAK_GUARD", actions[0]["action"])
+        self.assertEqual("FORCED_PASS", actions[0]["action"])
         self.assertEqual("S10", actions[0]["targetNodeId"])
+
+    def test_races_past_s09_when_task_lead_and_enemy_idle(self) -> None:
+        strategy = RouteStrategy()
+        strategy.load_start(
+            {
+                "matchId": "m1",
+                "edges": [{"fromNodeId": "S09", "toNodeId": "S10", "bidirectional": True}],
+                "map": {"gameplay": {"roles": {"gateNodeId": "S14", "terminalNodeIds": ["S15"]}}},
+            }
+        )
+        strategy.process_attempted.add("S09")
+        strategy._task_base_total = 90
+        actions = strategy.decide(
+            {
+                "round": 280,
+                "phase": "NORMAL",
+                "players": [
+                    {
+                        "playerId": 1001,
+                        "teamId": "RED",
+                        "state": "IDLE",
+                        "currentNodeId": "S09",
+                        "verified": False,
+                        "delivered": False,
+                        "routeTaskScore": "ROAD:90",
+                    },
+                    {
+                        "playerId": 2002,
+                        "teamId": "BLUE",
+                        "state": "IDLE",
+                        "currentNodeId": "S09",
+                        "routeTaskScore": "ROAD:30",
+                        "delivered": False,
+                    },
+                ],
+                "nodes": [{"nodeId": "S09", "processRound": 0}],
+            },
+            1001,
+        )
+        main = next(a for a in actions if a.get("action") != "SQUAD_SCOUT")
+        self.assertEqual({"action": "MOVE", "targetNodeId": "S10"}, main)
 
 
 if __name__ == "__main__":

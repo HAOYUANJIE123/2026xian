@@ -46,7 +46,7 @@ class ClientSession:
             return 0
         elif msg_name == "error":
             print(f"error received: {json.dumps(message, ensure_ascii=False)}", file=sys.stderr)
-            return 1
+            return None
         else:
             print(f"ignored msg_name={msg_name}")
         return None
@@ -71,5 +71,10 @@ class ClientSession:
             print(f"inquire round={round_no} -> heartbeat")
         write_frame(
             self._sock,
-            action_message(self._match_id, round_no, self._config.player_id, actions),
+            action_message(
+                self._match_id,
+                round_no,
+                self._config.player_id,
+                actions,
+            ),
         )

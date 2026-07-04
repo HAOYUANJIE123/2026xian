@@ -19,7 +19,10 @@ python validate_before_upload.py --pack
 | 4 | **本地 Demo 对战**（无 UI，headless，要求送达 + 总分≥700） | ✓ |
 | 5 | 打 zip（加 `--pack` 时） | ✓ |
 
-缺 opponent replay 文件会直接失败，提示你把 `log/2614/replay (10).txt` 等放进仓库。
+缺 opponent replay 文件会直接失败。当前必跑：
+
+- `log/2614/replay (12).txt`、`replay (15).txt`、`replay (17).txt`（2614 742 胜局基准）
+- `log/2616/replay (11).txt`、`replay (14).txt`、`replay (16).txt`（2616 胜局基准）
 
 跳过本地对战（仅调试，**不要上传**）：
 

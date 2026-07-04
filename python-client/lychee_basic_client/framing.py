@@ -1,8 +1,20 @@
 import json
+import re
 import socket
 from typing import Any
 
 MAX_BODY = 99999
+
+# V4 server may emit Java-style maps with unquoted numeric keys: {1001:"CLAIM_TASK"}
+_SERVER_JSON_KEY_RE = re.compile(r"(?<=[\{,])(\d+)(?=:)")
+
+
+def loads_server_json(body: bytes | str) -> Any:
+    text = body.decode("utf-8") if isinstance(body, bytes) else body
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        return json.loads(_SERVER_JSON_KEY_RE.sub(r'"\1"', text))
 
 
 def read_exact(sock: socket.socket, length: int) -> bytes:
@@ -26,7 +38,7 @@ def read_frame(sock: socket.socket) -> dict:
     if length < 0 or length > MAX_BODY:
         raise ValueError(f"invalid frame length: {length}")
     body = read_exact(sock, length)
-    return json.loads(body.decode("utf-8"))
+    return loads_server_json(body)
 
 
 def write_frame(sock: socket.socket, message: dict[str, Any]) -> None:

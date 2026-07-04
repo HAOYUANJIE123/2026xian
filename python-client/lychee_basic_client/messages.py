@@ -30,15 +30,20 @@ def action_message(
     round_no: int,
     player_id: int,
     actions: list[dict[str, Any]],
+    *,
+    window_card_action: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    msg_data: dict[str, Any] = {
+        "matchId": match_id,
+        "round": round_no,
+        "playerId": player_id,
+        "actions": actions,
+    }
+    if window_card_action is not None:
+        msg_data["windowCardAction"] = window_card_action
     return {
         "msg_name": "action",
-        "msg_data": {
-            "matchId": match_id,
-            "round": round_no,
-            "playerId": player_id,
-            "actions": actions,
-        },
+        "msg_data": msg_data,
     }
 
 

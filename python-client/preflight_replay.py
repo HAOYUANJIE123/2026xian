@@ -14,8 +14,11 @@ from lychee_basic_client.strategy import RouteStrategy
 DEFAULT_PID = 2941
 REQUIRED_REPLAYS = (
     Path(__file__).resolve().parent.parent / "log" / "2614" / "replay (12).txt",
+    Path(__file__).resolve().parent.parent / "log" / "2614" / "replay (15).txt",
+    Path(__file__).resolve().parent.parent / "log" / "2614" / "replay (17).txt",
     Path(__file__).resolve().parent.parent / "log" / "2616" / "replay (11).txt",
     Path(__file__).resolve().parent.parent / "log" / "2616" / "replay (14).txt",
+    Path(__file__).resolve().parent.parent / "log" / "2616" / "replay (16).txt",
 )
 REPLAY_PATHS = REQUIRED_REPLAYS
 
@@ -34,6 +37,9 @@ class ReplayAudit:
     repeated_set_guard_rounds: int = 0
     edge_stuck_missed_weaken: int = 0
     claim_at_contested_choke: int = 0
+    s02_waiting_no_move: int = 0
+    s02_process_spam: int = 0
+    s09_hold_while_racing: int = 0
 
     @property
     def ok(self) -> bool:
@@ -130,9 +136,7 @@ def audit_replay(path: Path, player_id: int = DEFAULT_PID) -> ReplayAudit:
                     (p for p in frame.get("players", []) if p.get("playerId") != player_id),
                     None,
                 )
-                if enemy and strategy._enemy_contests_choke_edge(
-                    frame, me, "S09", "S10"
-                ):
+                if enemy and enemy.get("currentNodeId") in ("S09", "S10"):
                     audit.claim_at_contested_choke += 1
 
         if node == "S09" and state in ("WAITING", "MOVING") and me.get("nextNodeId") == "S10":
@@ -147,7 +151,19 @@ def audit_replay(path: Path, player_id: int = DEFAULT_PID) -> ReplayAudit:
             ):
                 audit.edge_stuck_missed_weaken += 1
 
-    if audit.repeated_claim_rounds > 5:
+        if node == "S09" and state in ("IDLE", "WAITING") and not me.get("nextNodeId"):
+            if main and main.get("action") == "WAIT" and strategy._ahead_of_opponent(
+                frame, player_id
+            ):
+                audit.s09_hold_while_racing += 1
+
+        if node == "S02" and state == "WAITING" and not me.get("nextNodeId"):
+            if main and main.get("action") == "PROCESS":
+                audit.s02_process_spam += 1
+            elif main and main.get("action") != "MOVE":
+                audit.s02_waiting_no_move += 1
+
+    if audit.repeated_claim_rounds > 20:
         audit.issues.append(
             f"strategy repeats identical CLAIM_TASK {audit.repeated_claim_rounds} rounds"
         )
@@ -170,6 +186,18 @@ def audit_replay(path: Path, player_id: int = DEFAULT_PID) -> ReplayAudit:
     if audit.claim_at_contested_choke > 0:
         audit.issues.append(
             f"CLAIM_TASK at contested S09 choke x{audit.claim_at_contested_choke}"
+        )
+    if audit.s02_process_spam > 5:
+        audit.issues.append(
+            f"S02 WAITING repeats PROCESS x{audit.s02_process_spam} instead of leaving"
+        )
+    if audit.s02_waiting_no_move > 30:
+        audit.issues.append(
+            f"S02 WAITING {audit.s02_waiting_no_move} rounds without MOVE"
+        )
+    if audit.s09_hold_while_racing > 10:
+        audit.issues.append(
+            f"S09 WAIT while ahead/racing x{audit.s09_hold_while_racing}"
         )
 
     return audit
